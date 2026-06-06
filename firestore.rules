@@ -1,0 +1,53 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function hasUserDoc() {
+      return isAuthenticated() && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function isSameStore(storeId) {
+      return isAuthenticated() && userDoc().storeId == storeId;
+    }
+
+    function isOwner() {
+      return isAuthenticated() && userDoc().role == 'owner';
+    }
+
+    match /users/{userId} {
+      allow read, write: if isAuthenticated() && request.auth.uid == userId;
+    }
+
+    match /stores/{storeId} {
+      allow read: if isSameStore(storeId);
+      allow create: if isAuthenticated();
+      allow update, delete: if isSameStore(storeId) && isOwner();
+    }
+
+    match /products/{productId} {
+      // get = single doc fetch (resource.data available)
+      allow get: if isSameStore(resource.data.storeId);
+      // list = queries & aggregations (resource.data not available)
+      allow list: if hasUserDoc();
+      allow create: if isSameStore(request.resource.data.storeId);
+      allow update: if isSameStore(resource.data.storeId);
+      allow delete: if isSameStore(resource.data.storeId) && isOwner();
+    }
+
+    match /sales/{saleId} {
+      allow get: if isSameStore(resource.data.storeId);
+      allow list: if hasUserDoc();
+      allow create: if isSameStore(request.resource.data.storeId);
+      allow update: if isSameStore(resource.data.storeId);
+    }
+  }
+}
