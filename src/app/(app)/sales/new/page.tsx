@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthContext } from '@/components/layout/AuthProvider';
 import { useProducts } from '@/hooks/useProducts';
@@ -16,35 +16,25 @@ interface CartItem extends SaleItem {
 export default function NewSalePage() {
   const router = useRouter();
   const { appUser } = useAuthContext();
-  const { products, search } = useProducts(appUser?.storeId);
+  const { products, categories, search } = useProducts(appUser?.storeId);
 
   const [searchQuery, setSearchQuery] = useState('');
+  const [activeCategory, setActiveCategory] = useState('All');
   const [cart, setCart] = useState<CartItem[]>([]);
+  const [showCart, setShowCart] = useState(false);
   const [showPayment, setShowPayment] = useState(false);
   const [amountPaid, setAmountPaid] = useState('');
   const [customerName, setCustomerName] = useState('');
   const [saving, setSaving] = useState(false);
   const [savedId, setSavedId] = useState<string | null>(null);
 
-  const searchRef = useRef<HTMLInputElement>(null);
-  const amountRef = useRef<HTMLInputElement>(null);
-
-  // Auto-focus search on mount
-  useEffect(() => {
-    searchRef.current?.focus();
-  }, []);
-
-  // Auto-focus amount when payment drawer opens
-  useEffect(() => {
-    if (showPayment) {
-      setTimeout(() => amountRef.current?.focus(), 150);
+  const visibleProducts = useMemo(() => {
+    let list = searchQuery.trim() ? search(searchQuery) : products;
+    if (activeCategory !== 'All' && !searchQuery.trim()) {
+      list = list.filter((p) => p.category === activeCategory);
     }
-  }, [showPayment]);
-
-  const searchResults = useMemo(() => {
-    if (!searchQuery.trim()) return products.slice(0, 8);
-    return search(searchQuery).slice(0, 8);
-  }, [searchQuery, products, search]);
+    return list;
+  }, [searchQuery, activeCategory, products, search]);
 
   const addToCart = useCallback((product: (typeof products)[0]) => {
     setCart((prev) => {
@@ -54,40 +44,26 @@ export default function NewSalePage() {
           i.productId === product.id ? { ...i, qty: i.qty + 1 } : i
         );
       }
-      return [
-        ...prev,
-        {
-          productId: product.id,
-          name: product.name,
-          qty: 1,
-          unitPrice: product.price,
-          stockQty: product.stockQty,
-        },
-      ];
+      return [...prev, {
+        productId: product.id,
+        name: product.name,
+        qty: 1,
+        unitPrice: product.price,
+        stockQty: product.stockQty,
+      }];
     });
-    setSearchQuery('');
-    searchRef.current?.focus();
   }, []);
 
   const updateQty = useCallback((productId: string, delta: number) => {
     setCart((prev) =>
-      prev
-        .map((i) => (i.productId === productId ? { ...i, qty: i.qty + delta } : i))
-        .filter((i) => i.qty > 0)
+      prev.map((i) => i.productId === productId ? { ...i, qty: Math.max(0, i.qty + delta) } : i)
+          .filter((i) => i.qty > 0)
     );
   }, []);
 
-  const setQty = useCallback((productId: string, val: string) => {
-    const n = parseInt(val);
-    if (isNaN(n) || n < 0) return;
-    if (n === 0) {
-      setCart((prev) => prev.filter((i) => i.productId !== productId));
-    } else {
-      setCart((prev) => prev.map((i) => (i.productId === productId ? { ...i, qty: n } : i)));
-    }
-  }, []);
-
+  const cartQty = (productId: string) => cart.find((i) => i.productId === productId)?.qty ?? 0;
   const total = cart.reduce((sum, i) => sum + i.unitPrice * i.qty, 0);
+  const totalItems = cart.reduce((sum, i) => sum + i.qty, 0);
   const paid = parseFloat(amountPaid) || 0;
   const status: 'paid' | 'partial' | 'unpaid' =
     paid >= total ? 'paid' : paid > 0 ? 'partial' : 'unpaid';
@@ -99,12 +75,7 @@ export default function NewSalePage() {
     try {
       const id = await recordSale({
         storeId: appUser.storeId,
-        items: cart.map(({ productId, name, qty, unitPrice }) => ({
-          productId,
-          name,
-          qty,
-          unitPrice,
-        })),
+        items: cart.map(({ productId, name, qty, unitPrice }) => ({ productId, name, qty, unitPrice })),
         total,
         amountPaid: paid,
         status,
@@ -118,10 +89,10 @@ export default function NewSalePage() {
     }
   }
 
-  // Success screen
+  // ── Success screen ──────────────────────────────────────────────
   if (savedId) {
     return (
-      <div className="flex flex-col items-center justify-center h-full min-h-screen gap-5 px-6">
+      <div className="flex flex-col items-center justify-center h-full min-h-screen gap-5 px-6 bg-white">
         <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} className="w-10 h-10 text-green-600">
             <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
@@ -130,29 +101,14 @@ export default function NewSalePage() {
         <div className="text-center">
           <h2 className="text-xl font-bold text-gray-900">Sale Recorded!</h2>
           <p className="text-gray-500 mt-1">{naira(total)} · {status}</p>
-          {change > 0 && (
-            <p className="text-green-600 font-semibold mt-1">Change: {naira(change)}</p>
-          )}
+          {change > 0 && <p className="text-green-600 font-semibold mt-1">Change: {naira(change)}</p>}
         </div>
         <div className="flex gap-3 w-full max-w-xs">
           <button
-            onClick={() => {
-              setCart([]);
-              setSearchQuery('');
-              setAmountPaid('');
-              setCustomerName('');
-              setShowPayment(false);
-              setSaving(false);
-              setSavedId(null);
-            }}
-            className="flex-1 py-3 bg-green-600 text-white font-semibold rounded-xl active:bg-green-700"
-          >
-            New Sale
-          </button>
-          <button
-            onClick={() => router.replace('/history')}
-            className="flex-1 py-3 bg-gray-100 text-gray-700 font-semibold rounded-xl active:bg-gray-200"
-          >
+            onClick={() => { setCart([]); setAmountPaid(''); setCustomerName(''); setSaving(false); setSavedId(null); setShowPayment(false); setShowCart(false); }}
+            className="flex-1 py-3 bg-green-600 text-white font-semibold rounded-xl"
+          >New Sale</button>
+          <button onClick={() => router.replace('/history')} className="flex-1 py-3 bg-gray-100 text-gray-700 font-semibold rounded-xl">
             History
           </button>
         </div>
@@ -160,17 +116,16 @@ export default function NewSalePage() {
     );
   }
 
+  // ── Main page ───────────────────────────────────────────────────
   return (
-    <div className="flex flex-col h-full min-h-screen">
+    <div className="flex flex-col h-full min-h-screen bg-gray-50">
+
       {/* Header */}
-      <div className="sticky top-0 bg-white z-10 px-4 pt-5 pb-3 border-b border-gray-100">
+      <div className="sticky top-0 bg-white z-10 border-b border-gray-100 px-4 pt-5 pb-3">
         <div className="flex items-center justify-between mb-3">
           <h1 className="text-xl font-bold text-gray-900">Record Sale</h1>
           {cart.length > 0 && (
-            <button
-              onClick={() => setCart([])}
-              className="text-xs text-red-500 font-medium px-2.5 py-1.5 bg-red-50 rounded-lg active:bg-red-100"
-            >
+            <button onClick={() => setCart([])} className="text-xs text-red-500 font-medium px-2.5 py-1.5 bg-red-50 rounded-lg">
               Clear
             </button>
           )}
@@ -182,120 +137,148 @@ export default function NewSalePage() {
             <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
           <input
-            ref={searchRef}
             type="search"
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => { setSearchQuery(e.target.value); setActiveCategory('All'); }}
             placeholder="Search product by name or code..."
-            className="w-full pl-9 pr-4 py-3 bg-gray-100 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+            className="w-full pl-9 pr-4 py-2.5 bg-gray-100 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
             autoComplete="off"
           />
         </div>
 
-        {/* Search results */}
-        {searchResults.length > 0 && (
-          <div className="mt-2 flex flex-col gap-1 max-h-52 overflow-y-auto">
-            {searchResults.map((product) => (
+        {/* Category tabs */}
+        {!searchQuery && (
+          <div className="flex gap-2 mt-2.5 overflow-x-auto scrollbar-hide pb-0.5">
+            {['All', ...categories].map((cat) => (
               <button
-                key={product.id}
-                type="button"
-                onClick={() => addToCart(product)}
-                className="flex items-center justify-between px-3 py-2.5 bg-white rounded-xl border border-gray-100 active:bg-green-50 active:border-green-200 text-left"
+                key={cat}
+                onClick={() => setActiveCategory(cat)}
+                className={clsx(
+                  'shrink-0 text-xs font-semibold px-3 py-1.5 rounded-full transition-colors',
+                  activeCategory === cat ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-600'
+                )}
               >
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-gray-900 truncate">{product.name}</p>
-                  <p className="text-xs text-gray-400">
-                    {product.code && <span className="mr-2 text-blue-500">{product.code}</span>}
-                    {product.stockQty} in stock
-                  </p>
-                </div>
-                <span className="text-sm font-bold text-gray-900 ml-3 shrink-0">{naira(product.price)}</span>
+                {cat}
               </button>
             ))}
           </div>
         )}
       </div>
 
-      {/* Cart */}
-      <div className="flex-1 overflow-y-auto px-4 py-3">
-        {cart.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-40 text-gray-400">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} className="w-12 h-12 mb-2 opacity-30">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
-            </svg>
-            <p className="text-sm">Search and tap a product to add</p>
-          </div>
+      {/* Product grid */}
+      <div className="flex-1 overflow-y-auto px-4 py-3 pb-32">
+        {visibleProducts.length === 0 ? (
+          <div className="text-center py-16 text-gray-400 text-sm">No products found</div>
         ) : (
-          <div className="flex flex-col gap-2">
-            {cart.map((item) => (
-              <div key={item.productId} className="bg-white rounded-2xl px-4 py-3 flex items-center gap-3 border border-gray-100">
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-gray-900 truncate">{item.name}</p>
-                  <p className="text-xs text-gray-400">{naira(item.unitPrice)} each</p>
-                </div>
+          <div className="grid grid-cols-2 gap-3">
+            {visibleProducts.map((product) => {
+              const qty = cartQty(product.id);
+              const outOfStock = product.stockQty <= 0;
+              return (
+                <div
+                  key={product.id}
+                  className={clsx(
+                    'bg-white rounded-2xl p-3 border flex flex-col gap-2 transition-colors',
+                    qty > 0 ? 'border-green-300' : 'border-gray-100',
+                    outOfStock && 'opacity-50'
+                  )}
+                >
+                  {/* Product initial avatar */}
+                  <div className="w-full h-16 bg-gray-100 rounded-xl flex items-center justify-center">
+                    <span className="text-2xl font-bold text-gray-300">{product.name[0].toUpperCase()}</span>
+                  </div>
 
-                {/* Qty stepper */}
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => updateQty(item.productId, -1)}
-                    className="w-8 h-8 flex items-center justify-center bg-gray-100 rounded-full text-gray-700 active:bg-gray-200 font-bold text-lg"
-                  >
-                    −
-                  </button>
-                  <input
-                    type="number"
-                    value={item.qty}
-                    onChange={(e) => setQty(item.productId, e.target.value)}
-                    className="w-10 text-center text-sm font-bold bg-transparent focus:outline-none"
-                    inputMode="numeric"
-                    min="1"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => updateQty(item.productId, 1)}
-                    className="w-8 h-8 flex items-center justify-center bg-gray-100 rounded-full text-gray-700 active:bg-gray-200 font-bold text-lg"
-                  >
-                    +
-                  </button>
-                </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-semibold text-gray-900 truncate">{product.name}</p>
+                    <p className="text-xs text-gray-400">{product.stockQty} in stock</p>
+                    <p className="text-sm font-bold text-green-600 mt-0.5">{naira(product.price)}</p>
+                  </div>
 
-                <span className="text-sm font-bold text-gray-900 w-16 text-right shrink-0">
-                  {naira(item.unitPrice * item.qty)}
-                </span>
-              </div>
-            ))}
+                  {/* Add / qty stepper */}
+                  {qty === 0 ? (
+                    <button
+                      disabled={outOfStock}
+                      onClick={() => addToCart(product)}
+                      className="w-full py-2 bg-green-600 text-white text-xs font-bold rounded-xl active:bg-green-700 disabled:bg-gray-200 disabled:text-gray-400"
+                    >
+                      {outOfStock ? 'Out of Stock' : 'Add'}
+                    </button>
+                  ) : (
+                    <div className="flex items-center justify-between bg-green-50 rounded-xl px-2 py-1">
+                      <button onClick={() => updateQty(product.id, -1)} className="w-7 h-7 flex items-center justify-center bg-white rounded-lg text-gray-700 font-bold shadow-sm active:bg-gray-100">−</button>
+                      <span className="text-sm font-bold text-green-700">{qty}</span>
+                      <button onClick={() => addToCart(product)} className="w-7 h-7 flex items-center justify-center bg-green-600 rounded-lg text-white font-bold active:bg-green-700">+</button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
 
-      {/* Bottom bar */}
+      {/* Sticky cart bar */}
       {cart.length > 0 && (
-        <div className="sticky bottom-16 bg-white border-t border-gray-100 px-4 py-3">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-gray-500 font-medium">Total</span>
-            <span className="text-xl font-bold text-gray-900">{naira(total)}</span>
-          </div>
+        <div className="fixed bottom-16 left-0 right-0 px-4 py-3 bg-white border-t border-gray-100 z-20">
           <button
-            onClick={() => setShowPayment(true)}
-            className="w-full py-3.5 bg-green-600 text-white font-bold text-base rounded-2xl active:bg-green-700 transition-colors"
+            onClick={() => setShowCart(true)}
+            className="w-full py-3.5 bg-green-600 text-white font-bold text-base rounded-2xl flex items-center justify-between px-5 active:bg-green-700"
           >
-            Proceed to Payment
+            <span className="bg-green-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">{totalItems}</span>
+            <span>View Cart</span>
+            <span>{naira(total)}</span>
           </button>
+        </div>
+      )}
+
+      {/* Cart drawer */}
+      {showCart && (
+        <div className="fixed inset-0 z-50 flex flex-col justify-end">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setShowCart(false)} />
+          <div className="relative bg-white rounded-t-3xl px-5 pt-4 pb-6 max-h-[80vh] flex flex-col">
+            <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto mb-4" />
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-lg font-bold text-gray-900">Cart ({totalItems} items)</h2>
+              <button onClick={() => setShowCart(false)} className="text-xs text-gray-400 px-2 py-1">Done</button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto flex flex-col gap-2 mb-4">
+              {cart.map((item) => (
+                <div key={item.productId} className="flex items-center gap-3 bg-gray-50 rounded-2xl px-3 py-2.5">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-gray-900 truncate">{item.name}</p>
+                    <p className="text-xs text-gray-400">{naira(item.unitPrice)} each</p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button onClick={() => updateQty(item.productId, -1)} className="w-7 h-7 flex items-center justify-center bg-white rounded-lg text-gray-700 font-bold shadow-sm">−</button>
+                    <span className="text-sm font-bold w-5 text-center">{item.qty}</span>
+                    <button onClick={() => updateQty(item.productId, 1)} className="w-7 h-7 flex items-center justify-center bg-green-600 rounded-lg text-white font-bold">+</button>
+                  </div>
+                  <span className="text-sm font-bold text-gray-900 w-16 text-right shrink-0">{naira(item.unitPrice * item.qty)}</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex items-center justify-between mb-3 px-1">
+              <span className="font-semibold text-gray-700">Total</span>
+              <span className="text-xl font-bold text-gray-900">{naira(total)}</span>
+            </div>
+            <button
+              onClick={() => { setShowCart(false); setShowPayment(true); }}
+              className="w-full py-3.5 bg-green-600 text-white font-bold rounded-2xl active:bg-green-700"
+            >
+              Proceed to Payment
+            </button>
+          </div>
         </div>
       )}
 
       {/* Payment drawer */}
       {showPayment && (
         <div className="fixed inset-0 z-50 flex flex-col justify-end">
-          <div
-            className="absolute inset-0 bg-black/40"
-            onClick={() => !saving && setShowPayment(false)}
-          />
+          <div className="absolute inset-0 bg-black/40" onClick={() => !saving && setShowPayment(false)} />
           <div className="relative bg-white rounded-t-3xl px-5 pt-4 pb-8 safe-area-bottom">
-            {/* Handle */}
             <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto mb-5" />
-
             <h2 className="text-lg font-bold text-gray-900 mb-4">Payment</h2>
 
             <div className="flex flex-col gap-3 mb-5">
@@ -304,51 +287,38 @@ export default function NewSalePage() {
                 <span className="text-lg font-bold text-gray-900">{naira(total)}</span>
               </div>
 
-              {/* Amount paid */}
               <div className="flex flex-col gap-1">
                 <label className="text-sm font-medium text-gray-700">Amount Received (₦)</label>
                 <input
-                  ref={amountRef}
                   type="number"
                   inputMode="decimal"
                   value={amountPaid}
                   onChange={(e) => setAmountPaid(e.target.value)}
                   placeholder="0"
+                  autoFocus
                   className="w-full px-4 py-3 rounded-xl border border-gray-200 text-lg font-bold focus:outline-none focus:ring-2 focus:ring-green-500"
                 />
               </div>
 
-              {/* Quick fill buttons */}
               <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setAmountPaid(total.toString())}
-                  className="flex-1 py-2 text-sm font-medium text-green-600 bg-green-50 rounded-xl active:bg-green-100"
-                >
+                <button onClick={() => setAmountPaid(total.toString())} className="flex-1 py-2 text-sm font-medium text-green-600 bg-green-50 rounded-xl">
                   Exact: {naira(total)}
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setAmountPaid('')}
-                  className="py-2 px-4 text-sm font-medium text-gray-600 bg-gray-100 rounded-xl active:bg-gray-200"
-                >
+                <button onClick={() => setAmountPaid('')} className="py-2 px-4 text-sm font-medium text-gray-600 bg-gray-100 rounded-xl">
                   Unpaid
                 </button>
               </div>
 
-              {/* Status preview */}
               <div className={clsx(
                 'rounded-xl px-4 py-2 text-sm font-medium',
                 status === 'paid' ? 'bg-green-50 text-green-700' :
-                status === 'partial' ? 'bg-yellow-50 text-yellow-700' :
-                'bg-red-50 text-red-700'
+                status === 'partial' ? 'bg-yellow-50 text-yellow-700' : 'bg-red-50 text-red-700'
               )}>
                 {status === 'paid' && `Paid in full${change > 0 ? ` · Change: ${naira(change)}` : ''}`}
-                {status === 'partial' && `Partial payment · Balance: ${naira(total - paid)}`}
-                {status === 'unpaid' && 'Unpaid — will show in debt list'}
+                {status === 'partial' && `Partial · Balance: ${naira(total - paid)}`}
+                {status === 'unpaid' && 'Unpaid — will show in debtors'}
               </div>
 
-              {/* Customer name */}
               <input
                 type="text"
                 value={customerName}
@@ -360,7 +330,7 @@ export default function NewSalePage() {
 
             <button
               onClick={handleSave}
-              disabled={saving}
+              disabled={saving || cart.length === 0}
               className={clsx(
                 'w-full py-4 text-white font-bold text-base rounded-2xl transition-colors',
                 saving ? 'bg-green-400' : 'bg-green-600 active:bg-green-700'
@@ -371,9 +341,7 @@ export default function NewSalePage() {
                   <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                   Saving...
                 </span>
-              ) : (
-                'Save Sale'
-              )}
+              ) : 'Save Sale'}
             </button>
           </div>
         </div>
