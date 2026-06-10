@@ -16,7 +16,7 @@ export default function ProductsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState('');
 
-  const isOwner = can(appUser?.role, 'VIEW_COST');
+  const isOwner = can(appUser, 'VIEW_COST');
 
   const results = useMemo(() => {
     const searched = search(searchQuery);
@@ -35,7 +35,7 @@ export default function ProductsPage() {
       <div className="sticky top-0 bg-white z-10 px-4 pt-5 pb-3 border-b border-gray-100">
         <div className="flex items-center justify-between mb-3">
           <h1 className="text-xl font-bold text-gray-900">Products</h1>
-          {can(appUser?.role, 'ADD_EDIT_PRODUCT') && (
+          {can(appUser,'ADD_EDIT_PRODUCT') && (
             <div className="flex gap-2">
               <Link
                 href="/products/restock"
@@ -114,7 +114,7 @@ export default function ProductsPage() {
             <p className="text-gray-400">
               {searchQuery || activeCategory ? 'No products match your search' : 'No products yet'}
             </p>
-            {can(appUser?.role, 'ADD_EDIT_PRODUCT') && !searchQuery && !activeCategory && (
+            {can(appUser,'ADD_EDIT_PRODUCT') && !searchQuery && !activeCategory && (
               <Link href="/products/new" className="inline-block mt-3 text-green-600 font-semibold text-sm">
                 Add your first product
               </Link>
@@ -166,7 +166,7 @@ export default function ProductsPage() {
                     )}>
                       {product.stockQty} in stock
                     </span>
-                    {can(appUser?.role, 'ADD_EDIT_PRODUCT') && (
+                    {can(appUser,'ADD_EDIT_PRODUCT') && (
                       <div className="flex gap-1.5">
                         <Link
                           href={`/products/${product.id}/edit`}
@@ -174,7 +174,7 @@ export default function ProductsPage() {
                         >
                           Edit
                         </Link>
-                        {can(appUser?.role, 'DELETE_PRODUCT') && (
+                        {can(appUser,'DELETE_PRODUCT') && (
                           <button
                             onClick={() => handleDelete(product.id, product.name)}
                             className="text-xs text-red-500 font-medium px-2 py-1 bg-red-50 rounded-lg active:bg-red-100"

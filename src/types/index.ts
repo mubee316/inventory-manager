@@ -9,11 +9,20 @@ export interface Store {
   createdAt: Timestamp;
 }
 
+export type PermissionKey =
+  | 'VIEW_COST'
+  | 'DELETE_PRODUCT'
+  | 'ADD_EDIT_PRODUCT'
+  | 'RECORD_SALE'
+  | 'VIEW_HISTORY'
+  | 'VIEW_DASHBOARD';
+
 export interface AppUser {
   uid: string;
   storeId: string;
   role: Role;
   name: string;
+  permissions?: Partial<Record<PermissionKey, boolean>>;
 }
 
 export interface Product {

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { signOut } from 'firebase/auth';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
@@ -134,6 +135,25 @@ export default function SettingsPage() {
           )}
         </div>
       </section>
+
+      {/* Staff management — owner only */}
+      {appUser?.role === 'owner' && (
+        <section className="mb-5">
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2 px-1">Team</p>
+          <Link
+            href="/staff"
+            className="bg-white rounded-2xl border border-gray-100 px-4 py-3 flex items-center justify-between active:bg-gray-50"
+          >
+            <div>
+              <p className="text-sm font-medium text-gray-900">Manage Staff Access</p>
+              <p className="text-xs text-gray-400">Control what each staff member can do</p>
+            </div>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} className="w-4 h-4 text-gray-300">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+            </svg>
+          </Link>
+        </section>
+      )}
 
       {/* Sign out */}
       <button

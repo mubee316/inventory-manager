@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import {
   collection, query, where, onSnapshot, Timestamp,
   getAggregateFromServer, sum, count, getDoc, doc,
@@ -66,6 +66,29 @@ export default function DashboardPage() {
   }, [appUser?.storeId]);
 
   const todayTotal = todaySales.reduce((s, sale) => s + sale.total, 0);
+  const isOwner = appUser?.role === 'owner';
+
+  const profitByProduct = useMemo(() => {
+    if (!isOwner || !todaySales.length || !products.length) return [];
+    const costMap = new Map(products.map((p) => [p.id, p.cost]));
+    const acc = new Map<string, { name: string; qty: number; profit: number }>();
+    for (const sale of todaySales) {
+      for (const item of sale.items) {
+        const cost = costMap.get(item.productId) ?? 0;
+        const profit = (item.unitPrice - cost) * item.qty;
+        const prev = acc.get(item.productId);
+        if (prev) {
+          prev.qty += item.qty;
+          prev.profit += profit;
+        } else {
+          acc.set(item.productId, { name: item.name, qty: item.qty, profit });
+        }
+      }
+    }
+    return Array.from(acc.values()).sort((a, b) => b.profit - a.profit);
+  }, [todaySales, products, isOwner]);
+
+  const todayProfit = profitByProduct.reduce((s, p) => s + p.profit, 0);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -117,6 +140,21 @@ export default function DashboardPage() {
             </p>
           )}
         </div>
+
+        {/* Today's profit — owner only */}
+        {isOwner && !loadingSales && (
+          <Link href="/profit" className="bg-white rounded-2xl border border-gray-100 px-4 py-3 flex items-center justify-between active:bg-gray-50">
+            <div>
+              <p className="text-xs text-gray-400 mb-0.5">Today&apos;s Profit</p>
+              <p className="text-lg font-bold text-green-600">
+                {profitByProduct.length === 0 ? naira(0) : naira(todayProfit)}
+              </p>
+            </div>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} className="w-5 h-5 text-gray-300">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+            </svg>
+          </Link>
+        )}
 
         {/* Quick actions */}
         <div>

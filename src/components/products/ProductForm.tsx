@@ -36,7 +36,7 @@ interface ProductFormProps {
 export function ProductForm({ product, categories = [] }: ProductFormProps) {
   const router = useRouter();
   const { appUser } = useAuthContext();
-  const isOwner = can(appUser?.role, 'VIEW_COST');
+  const isOwner = can(appUser, 'VIEW_COST');
   const isEdit = !!product;
 
   const [name, setName] = useState(product?.name ?? '');
