@@ -23,8 +23,20 @@ service cloud.firestore {
       return isAuthenticated() && userDoc().role == 'owner';
     }
 
+    // Owners can do anything; staff need the permission explicitly granted on their
+    // user doc (copied there from their assigned custom role).
+    function hasPerm(key) {
+      return isOwner() || userDoc().get('permissions', {}).get(key, false) == true;
+    }
+
     match /users/{userId} {
       allow read, write: if isAuthenticated() && request.auth.uid == userId;
+      // Owners can read staff in their store
+      allow read: if isOwner() && resource.data.storeId == userDoc().storeId;
+      // Owners can assign roles to staff in their store (storeId must not change)
+      allow update: if isOwner()
+        && resource.data.storeId == userDoc().storeId
+        && request.resource.data.storeId == resource.data.storeId;
     }
 
     match /stores/{storeId} {
@@ -34,20 +46,66 @@ service cloud.firestore {
     }
 
     match /products/{productId} {
-      // get = single doc fetch (resource.data available)
       allow get: if isSameStore(resource.data.storeId);
-      // list = queries & aggregations (resource.data not available)
       allow list: if hasUserDoc();
-      allow create: if isSameStore(request.resource.data.storeId);
-      allow update: if isSameStore(resource.data.storeId);
-      allow delete: if isSameStore(resource.data.storeId) && isOwner();
+      allow create: if isSameStore(request.resource.data.storeId) && hasPerm('ADD_PRODUCT');
+      // Editing/restocking needs the matching permission. A sale also decrements
+      // stock here: someone with RECORD_SALE may change only stockQty/updatedAt and
+      // only downward, without being able to edit other product fields.
+      allow update: if isSameStore(resource.data.storeId) && (
+        hasPerm('EDIT_PRODUCT') || hasPerm('RESTOCK')
+        || (hasPerm('RECORD_SALE')
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stockQty', 'updatedAt'])
+            && request.resource.data.stockQty <= resource.data.stockQty)
+      );
+      allow delete: if isSameStore(resource.data.storeId) && hasPerm('DELETE_PRODUCT');
+    }
+
+    // Cost prices live here (doc id == product id) so they can be locked to
+    // owners — staff can read /products but never see margins. read covers
+    // get + list; list is evaluated per-doc so a query is rejected unless every
+    // returned cost belongs to the requester's store.
+    match /productCosts/{productId} {
+      allow read:          if isOwner() && resource.data.storeId == userDoc().storeId;
+      allow create, update: if isOwner() && request.resource.data.storeId == userDoc().storeId;
+      allow delete:        if isOwner() && resource.data.storeId == userDoc().storeId;
     }
 
     match /sales/{saleId} {
+      allow get: if isSameStore(resource.data.storeId)
+        && (hasPerm('VIEW_HISTORY') || hasPerm('VIEW_DASHBOARD'));
+      allow list: if hasUserDoc()
+        && (hasPerm('VIEW_DASHBOARD') || hasPerm('VIEW_HISTORY'));
+      allow create: if isSameStore(request.resource.data.storeId) && hasPerm('RECORD_SALE');
+      allow update: if isSameStore(resource.data.storeId) && hasPerm('CONFIRM_PAYMENT');
+    }
+
+    match /roles/{roleId} {
       allow get: if isSameStore(resource.data.storeId);
       allow list: if hasUserDoc();
-      allow create: if isSameStore(request.resource.data.storeId);
-      allow update: if isSameStore(resource.data.storeId);
+      allow create: if isSameStore(request.resource.data.storeId) && isOwner();
+      allow update, delete: if isSameStore(resource.data.storeId) && isOwner();
+    }
+
+    match /invites/{inviteId} {
+      // Owner can create invites for their store
+      allow create: if isOwner() && request.resource.data.storeId == userDoc().storeId;
+      // An invited user has NO user doc yet on signup, so check the email match
+      // FIRST — calling isOwner()/userDoc() on a missing doc errors and (via ||)
+      // would deny the whole read. Owner reads are guarded behind hasUserDoc().
+      allow read: if isAuthenticated() && (
+        resource.data.email == request.auth.token.email
+        || (hasUserDoc() && isOwner() && resource.data.storeId == userDoc().storeId)
+      );
+      // The invited user may only flip status to 'accepted' when claiming it;
+      // the store owner may manage their store's invites.
+      allow update: if isAuthenticated() && (
+        (resource.data.email == request.auth.token.email
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']))
+        || (hasUserDoc() && isOwner() && resource.data.storeId == userDoc().storeId)
+      );
+      // Owner may revoke (delete) a pending invite for their store.
+      allow delete: if hasUserDoc() && isOwner() && resource.data.storeId == userDoc().storeId;
     }
   }
 }

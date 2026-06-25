@@ -42,6 +42,7 @@ export default function JoinStorePage() {
         storeId: storeId.trim(),
         role: 'staff',
         name: name.trim() || user.email?.split('@')[0] || 'Staff',
+        ...(user.email ? { email: user.email } : {}),
       });
 
       sessionStorage.removeItem('pendingName');

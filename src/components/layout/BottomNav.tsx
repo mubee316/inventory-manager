@@ -3,8 +3,17 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import clsx from 'clsx';
+import { useAuthContext } from '@/components/layout/AuthProvider';
+import { can } from '@/constants/roles';
+import type { PermissionKey } from '@/types';
 
-const navItems = [
+const navItems: {
+  href: string;
+  label: string;
+  icon: (active: boolean) => React.ReactNode;
+  isAction?: boolean;
+  permission?: PermissionKey;
+}[] = [
   {
     href: '/dashboard',
     label: 'Home',
@@ -32,10 +41,12 @@ const navItems = [
       </svg>
     ),
     isAction: true,
+    permission: 'RECORD_SALE',
   },
   {
     href: '/history',
     label: 'History',
+    permission: 'VIEW_HISTORY',
     icon: (active: boolean) => (
       <svg viewBox="0 0 24 24" fill={active ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth={2} className="w-6 h-6">
         <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
@@ -55,11 +66,16 @@ const navItems = [
 
 export function BottomNav() {
   const pathname = usePathname();
+  const { appUser } = useAuthContext();
+
+  const visibleItems = navItems.filter(
+    (item) => !item.permission || can(appUser, item.permission)
+  );
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-40 safe-area-bottom">
       <div className="flex items-center justify-around h-16 max-w-lg mx-auto px-2">
-        {navItems.map((item) => {
+        {visibleItems.map((item) => {
           const active = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href));
 
           if (item.isAction) {

@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react';
 import Link from 'next/link';
 import { useAuthContext } from '@/components/layout/AuthProvider';
 import { useProducts } from '@/hooks/useProducts';
+import { useProductCosts } from '@/hooks/useProductCosts';
 import { can } from '@/constants/roles';
 import { naira } from '@/lib/formatters';
 import { Badge } from '@/components/ui/Badge';
@@ -16,7 +17,8 @@ export default function ProductsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState('');
 
-  const isOwner = can(appUser, 'VIEW_COST');
+  const isOwner = appUser?.role === 'owner';
+  const costs = useProductCosts(appUser?.storeId, isOwner);
 
   const results = useMemo(() => {
     const searched = search(searchQuery);
@@ -35,8 +37,8 @@ export default function ProductsPage() {
       <div className="sticky top-0 bg-white z-10 px-4 pt-5 pb-3 border-b border-gray-100">
         <div className="flex items-center justify-between mb-3">
           <h1 className="text-xl font-bold text-gray-900">Products</h1>
-          {can(appUser,'ADD_EDIT_PRODUCT') && (
-            <div className="flex gap-2">
+          <div className="flex gap-2">
+            {can(appUser,'RESTOCK') && (
               <Link
                 href="/products/restock"
                 className="flex items-center gap-1.5 bg-gray-100 text-gray-700 text-sm font-semibold px-3 py-2 rounded-xl active:bg-gray-200"
@@ -46,6 +48,8 @@ export default function ProductsPage() {
                 </svg>
                 Restock
               </Link>
+            )}
+            {can(appUser,'ADD_PRODUCT') && (
               <Link
                 href="/products/new"
                 className="flex items-center gap-1.5 bg-green-600 text-white text-sm font-semibold px-3 py-2 rounded-xl active:bg-green-700"
@@ -55,8 +59,8 @@ export default function ProductsPage() {
                 </svg>
                 Add
               </Link>
-            </div>
-          )}
+            )}
+          </div>
         </div>
 
         {/* Search */}
@@ -114,7 +118,7 @@ export default function ProductsPage() {
             <p className="text-gray-400">
               {searchQuery || activeCategory ? 'No products match your search' : 'No products yet'}
             </p>
-            {can(appUser,'ADD_EDIT_PRODUCT') && !searchQuery && !activeCategory && (
+            {can(appUser,'ADD_PRODUCT') && !searchQuery && !activeCategory && (
               <Link href="/products/new" className="inline-block mt-3 text-green-600 font-semibold text-sm">
                 Add your first product
               </Link>
@@ -153,8 +157,8 @@ export default function ProductsPage() {
                     <p className="text-xs text-gray-400">{product.category}</p>
                     <div className="flex items-center gap-2 mt-1">
                       <span className="text-sm font-bold text-gray-900">{naira(product.price)}</span>
-                      {isOwner && (
-                        <span className="text-xs text-gray-400">cost: {naira(product.cost)}</span>
+                      {isOwner && costs.has(product.id) && (
+                        <span className="text-xs text-gray-400">cost: {naira(costs.get(product.id)!)}</span>
                       )}
                     </div>
                   </div>
@@ -166,14 +170,16 @@ export default function ProductsPage() {
                     )}>
                       {product.stockQty} in stock
                     </span>
-                    {can(appUser,'ADD_EDIT_PRODUCT') && (
+                    {(can(appUser,'EDIT_PRODUCT') || can(appUser,'DELETE_PRODUCT')) && (
                       <div className="flex gap-1.5">
-                        <Link
-                          href={`/products/${product.id}/edit`}
-                          className="text-xs text-green-600 font-medium px-2 py-1 bg-green-50 rounded-lg active:bg-green-100"
-                        >
-                          Edit
-                        </Link>
+                        {can(appUser,'EDIT_PRODUCT') && (
+                          <Link
+                            href={`/products/${product.id}/edit`}
+                            className="text-xs text-green-600 font-medium px-2 py-1 bg-green-50 rounded-lg active:bg-green-100"
+                          >
+                            Edit
+                          </Link>
+                        )}
                         {can(appUser,'DELETE_PRODUCT') && (
                           <button
                             onClick={() => handleDelete(product.id, product.name)}

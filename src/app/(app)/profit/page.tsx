@@ -6,14 +6,15 @@ import { collection, query, where, onSnapshot, Timestamp } from 'firebase/firest
 import { startOfDay, endOfDay } from 'date-fns';
 import { db } from '@/lib/firebase';
 import { useAuthContext } from '@/components/layout/AuthProvider';
-import { useProducts } from '@/hooks/useProducts';
+import { useProductCosts } from '@/hooks/useProductCosts';
 import { naira } from '@/lib/formatters';
 import type { Sale } from '@/types';
 
 export default function ProfitPage() {
   const { appUser } = useAuthContext();
   const router = useRouter();
-  const { products } = useProducts(appUser?.storeId);
+  const isOwner = appUser?.role === 'owner';
+  const costs = useProductCosts(appUser?.storeId, isOwner);
   const [todaySales, setTodaySales] = useState<Sale[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -33,12 +34,11 @@ export default function ProfitPage() {
   }, [appUser?.storeId]);
 
   const profitByProduct = useMemo(() => {
-    if (!todaySales.length || !products.length) return [];
-    const costMap = new Map(products.map((p) => [p.id, p.cost]));
+    if (!todaySales.length) return [];
     const acc = new Map<string, { name: string; qty: number; revenue: number; profit: number }>();
     for (const sale of todaySales) {
       for (const item of sale.items) {
-        const cost = costMap.get(item.productId) ?? 0;
+        const cost = costs.get(item.productId) ?? 0;
         const revenue = item.unitPrice * item.qty;
         const profit = (item.unitPrice - cost) * item.qty;
         const prev = acc.get(item.productId);
@@ -52,11 +52,15 @@ export default function ProfitPage() {
       }
     }
     return Array.from(acc.values()).sort((a, b) => b.profit - a.profit);
-  }, [todaySales, products]);
+  }, [todaySales, costs]);
 
   const totalRevenue = profitByProduct.reduce((s, p) => s + p.revenue, 0);
   const totalProfit = profitByProduct.reduce((s, p) => s + p.profit, 0);
   const margin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
+
+  if (!isOwner) {
+    return <p className="p-6 text-gray-500">You don&apos;t have permission to view profit.</p>;
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">

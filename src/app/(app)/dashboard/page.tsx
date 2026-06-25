@@ -8,8 +8,10 @@ import {
 import { startOfDay, endOfDay } from 'date-fns';
 import { db } from '@/lib/firebase';
 import { useAuthContext } from '@/components/layout/AuthProvider';
+import { can } from '@/constants/roles';
 import { lowStockQuery } from '@/lib/firestore';
 import { useProducts } from '@/hooks/useProducts';
+import { useProductCosts } from '@/hooks/useProductCosts';
 import { naira, formatDate } from '@/lib/formatters';
 import type { Sale, Product, Store } from '@/types';
 import Link from 'next/link';
@@ -23,12 +25,27 @@ export default function DashboardPage() {
   const [loadingSales, setLoadingSales] = useState(true);
   const [allTime, setAllTime] = useState<{ revenue: number; received: number; count: number } | null>(null);
 
+  // What this user is allowed to see on the dashboard.
+  const canViewDashboard = can(appUser, 'VIEW_DASHBOARD'); // revenue / sales figures
+  const canViewHistory = can(appUser, 'VIEW_HISTORY');     // recent activity / debtors
+  const canSeeSales = canViewDashboard || canViewHistory;
+
   useEffect(() => {
     if (!appUser?.storeId) return;
 
     getDoc(doc(db, 'stores', appUser.storeId)).then((snap) => {
       if (snap.exists()) setStore({ id: snap.id, ...snap.data() } as Store);
     });
+
+    const unsubStock = onSnapshot(lowStockQuery(appUser.storeId), (snap) => {
+      setLowStock(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Product)));
+    });
+
+    // Only read sales for users permitted to see them (also avoids rules denials).
+    if (!canSeeSales) {
+      setLoadingSales(false);
+      return () => { unsubStock(); };
+    }
 
     const todayStart = Timestamp.fromDate(startOfDay(new Date()));
     const todayEnd = Timestamp.fromDate(endOfDay(new Date()));
@@ -45,10 +62,6 @@ export default function DashboardPage() {
       setLoadingSales(false);
     });
 
-    const unsubStock = onSnapshot(lowStockQuery(appUser.storeId), (snap) => {
-      setLowStock(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Product)));
-    });
-
     const allSalesQ = query(collection(db, 'sales'), where('storeId', '==', appUser.storeId));
     getAggregateFromServer(allSalesQ, {
       revenue: sum('total'),
@@ -63,18 +76,18 @@ export default function DashboardPage() {
     }).catch(() => {});
 
     return () => { unsubSales(); unsubStock(); };
-  }, [appUser?.storeId]);
+  }, [appUser?.storeId, canSeeSales]);
 
   const todayTotal = todaySales.reduce((s, sale) => s + sale.total, 0);
   const isOwner = appUser?.role === 'owner';
+  const costs = useProductCosts(appUser?.storeId, isOwner);
 
   const profitByProduct = useMemo(() => {
-    if (!isOwner || !todaySales.length || !products.length) return [];
-    const costMap = new Map(products.map((p) => [p.id, p.cost]));
+    if (!isOwner || !todaySales.length) return [];
     const acc = new Map<string, { name: string; qty: number; profit: number }>();
     for (const sale of todaySales) {
       for (const item of sale.items) {
-        const cost = costMap.get(item.productId) ?? 0;
+        const cost = costs.get(item.productId) ?? 0;
         const profit = (item.unitPrice - cost) * item.qty;
         const prev = acc.get(item.productId);
         if (prev) {
@@ -86,7 +99,7 @@ export default function DashboardPage() {
       }
     }
     return Array.from(acc.values()).sort((a, b) => b.profit - a.profit);
-  }, [todaySales, products, isOwner]);
+  }, [todaySales, costs, isOwner]);
 
   const todayProfit = profitByProduct.reduce((s, p) => s + p.profit, 0);
 
@@ -97,17 +110,19 @@ export default function DashboardPage() {
         <p className="text-gray-400 text-xs mb-0.5">Good {getGreeting()}, {appUser?.name}</p>
         <div className="flex items-center justify-between">
           <h1 className="text-lg font-bold text-gray-900">{store?.name ?? 'Your Store'}</h1>
-          <Link href="/history" className="text-xs font-medium text-green-600 bg-green-50 px-3 py-1.5 rounded-full">
-            View All
-          </Link>
+          {canViewHistory && (
+            <Link href="/history" className="text-xs font-medium text-green-600 bg-green-50 px-3 py-1.5 rounded-full">
+              View All
+            </Link>
+          )}
         </div>
         <p className="text-xs text-gray-400 mt-0.5">Store Overview</p>
       </div>
 
       <div className="px-4 py-4 flex flex-col gap-5 max-w-lg mx-auto">
 
-        {/* 3-stat row */}
-        <div className="grid grid-cols-3 gap-3">
+        {/* Stat row — inventory stats are always shown; Sales Today needs dashboard access */}
+        <div className={`grid gap-3 ${canViewDashboard ? 'grid-cols-3' : 'grid-cols-2'}`}>
           <Link href="/products" className="bg-white rounded-2xl p-3 border border-gray-100 text-center active:bg-gray-50">
             <p className="text-2xl font-bold text-blue-600">{products.length}</p>
             <p className="text-xs text-gray-500 mt-0.5">Products</p>
@@ -116,30 +131,34 @@ export default function DashboardPage() {
             <p className="text-2xl font-bold text-orange-500">{lowStock.length}</p>
             <p className="text-xs text-gray-500 mt-0.5">Low Stock</p>
           </Link>
-          <div className="bg-white rounded-2xl p-3 border border-gray-100 text-center">
-            {loadingSales ? (
-              <div className="h-8 w-10 bg-gray-100 rounded animate-pulse mx-auto mb-1" />
-            ) : (
-              <p className="text-2xl font-bold text-green-600">{todaySales.length}</p>
-            )}
-            <p className="text-xs text-gray-500 mt-0.5">Sales Today</p>
-          </div>
+          {canViewDashboard && (
+            <div className="bg-white rounded-2xl p-3 border border-gray-100 text-center">
+              {loadingSales ? (
+                <div className="h-8 w-10 bg-gray-100 rounded animate-pulse mx-auto mb-1" />
+              ) : (
+                <p className="text-2xl font-bold text-green-600">{todaySales.length}</p>
+              )}
+              <p className="text-xs text-gray-500 mt-0.5">Sales Today</p>
+            </div>
+          )}
         </div>
 
         {/* Today's revenue */}
-        <div className="bg-green-600 rounded-2xl p-4 text-white">
-          <p className="text-green-100 text-xs font-medium mb-1">Today&apos;s Revenue</p>
-          {loadingSales ? (
-            <div className="h-8 w-32 bg-green-500 rounded animate-pulse" />
-          ) : (
-            <p className="text-3xl font-bold">{naira(todayTotal)}</p>
-          )}
-          {allTime && (
-            <p className="text-green-200 text-xs mt-1">
-              All-time: {naira(allTime.revenue)} · {allTime.count} sales
-            </p>
-          )}
-        </div>
+        {canViewDashboard && (
+          <div className="bg-green-600 rounded-2xl p-4 text-white">
+            <p className="text-green-100 text-xs font-medium mb-1">Today&apos;s Revenue</p>
+            {loadingSales ? (
+              <div className="h-8 w-32 bg-green-500 rounded animate-pulse" />
+            ) : (
+              <p className="text-3xl font-bold">{naira(todayTotal)}</p>
+            )}
+            {allTime && (
+              <p className="text-green-200 text-xs mt-1">
+                All-time: {naira(allTime.revenue)} · {allTime.count} sales
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Today's profit — owner only */}
         {isOwner && !loadingSales && (
@@ -156,33 +175,40 @@ export default function DashboardPage() {
           </Link>
         )}
 
-        {/* Quick actions */}
-        <div>
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Quick Actions</p>
-          <div className="grid grid-cols-4 gap-2">
-            {[
-              { label: 'Add Product', href: '/products/new', bg: 'bg-blue-50', color: 'text-blue-600',
-                icon: <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /> },
-              { label: 'Restock', href: '/products/restock', bg: 'bg-orange-50', color: 'text-orange-600',
-                icon: <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /> },
-              { label: 'Record Sale', href: '/sales/new', bg: 'bg-green-50', color: 'text-green-600',
-                icon: <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" /> },
-              { label: 'Debtors', href: '/debtors', bg: 'bg-red-50', color: 'text-red-500',
-                icon: <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" /> },
-            ].map((action) => (
-              <Link key={action.label} href={action.href}
-                className="flex flex-col items-center gap-1.5 active:opacity-70"
-              >
-                <div className={`w-14 h-14 ${action.bg} rounded-2xl flex items-center justify-center`}>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className={`w-6 h-6 ${action.color}`}>
-                    {action.icon}
-                  </svg>
-                </div>
-                <span className="text-xs text-gray-600 font-medium text-center leading-tight">{action.label}</span>
-              </Link>
-            ))}
-          </div>
-        </div>
+        {/* Quick actions — each only shown if the user's role allows it */}
+        {(() => {
+          const actions = [
+            { label: 'Add Product', href: '/products/new', perm: 'ADD_PRODUCT', bg: 'bg-blue-50', color: 'text-blue-600',
+              icon: <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /> },
+            { label: 'Restock', href: '/products/restock', perm: 'RESTOCK', bg: 'bg-orange-50', color: 'text-orange-600',
+              icon: <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /> },
+            { label: 'Record Sale', href: '/sales/new', perm: 'RECORD_SALE', bg: 'bg-green-50', color: 'text-green-600',
+              icon: <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" /> },
+            { label: 'Debtors', href: '/debtors', perm: 'VIEW_HISTORY', bg: 'bg-red-50', color: 'text-red-500',
+              icon: <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" /> },
+          ] as const;
+          const visible = actions.filter((a) => can(appUser, a.perm));
+          if (visible.length === 0) return null;
+          return (
+            <div>
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Quick Actions</p>
+              <div className="grid grid-cols-4 gap-2">
+                {visible.map((action) => (
+                  <Link key={action.label} href={action.href}
+                    className="flex flex-col items-center gap-1.5 active:opacity-70"
+                  >
+                    <div className={`w-14 h-14 ${action.bg} rounded-2xl flex items-center justify-center`}>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className={`w-6 h-6 ${action.color}`}>
+                        {action.icon}
+                      </svg>
+                    </div>
+                    <span className="text-xs text-gray-600 font-medium text-center leading-tight">{action.label}</span>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Low stock alert */}
         {lowStock.length > 0 && (
@@ -205,7 +231,8 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* Recent activity */}
+        {/* Recent activity — sales history */}
+        {canViewHistory && (
         <div>
           <div className="flex items-center justify-between mb-3">
             <p className="text-sm font-semibold text-gray-900">Recent Activity</p>
@@ -250,6 +277,7 @@ export default function DashboardPage() {
             </div>
           )}
         </div>
+        )}
       </div>
     </div>
   );

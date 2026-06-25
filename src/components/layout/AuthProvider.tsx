@@ -1,25 +1,27 @@
 'use client';
 
 import { createContext, useContext, type ReactNode } from 'react';
-import { useAuth } from '@/hooks/useAuth';
-import type { AppUser } from '@/types';
-import type { User } from 'firebase/auth';
+import { useAuth, type AuthValue } from '@/hooks/useAuth';
+import { InviteModal } from '@/components/layout/InviteModal';
 
-interface AuthContextValue {
-  user: User | null;
-  appUser: AppUser | null;
-  loading: boolean;
-}
+const noop = async () => {};
 
-const AuthContext = createContext<AuthContextValue>({
+const AuthContext = createContext<AuthValue>({
   user: null,
   appUser: null,
+  pendingInvite: null,
   loading: true,
+  acceptInvite: noop,
 });
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const auth = useAuth();
-  return <AuthContext.Provider value={auth}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={auth}>
+      {children}
+      <InviteModal />
+    </AuthContext.Provider>
+  );
 }
 
 export function useAuthContext() {

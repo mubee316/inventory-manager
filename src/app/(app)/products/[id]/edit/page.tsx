@@ -5,7 +5,9 @@ import { useRouter } from 'next/navigation';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuthContext } from '@/components/layout/AuthProvider';
+import { can } from '@/constants/roles';
 import { useProducts } from '@/hooks/useProducts';
+import { getProductCost } from '@/lib/firestore';
 import { ProductForm } from '@/components/products/ProductForm';
 import type { Product } from '@/types';
 
@@ -15,6 +17,7 @@ export default function EditProductPage({ params }: { params: Promise<{ id: stri
   const { appUser } = useAuthContext();
   const { categories } = useProducts(appUser?.storeId);
   const [product, setProduct] = useState<Product | null>(null);
+  const [cost, setCost] = useState<number | undefined>(undefined);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -26,6 +29,15 @@ export default function EditProductPage({ params }: { params: Promise<{ id: stri
     });
     return unsub;
   }, [id]);
+
+  // Cost lives in the owner-only collection; load it for the form's initial value.
+  useEffect(() => {
+    getProductCost(id).then(setCost).catch(() => {});
+  }, [id]);
+
+  if (!can(appUser, 'EDIT_PRODUCT')) {
+    return <p className="p-6 text-gray-500">You don&apos;t have permission to edit products.</p>;
+  }
 
   if (loading) {
     return (
@@ -52,7 +64,7 @@ export default function EditProductPage({ params }: { params: Promise<{ id: stri
         </button>
         <h1 className="text-xl font-bold text-gray-900">Edit Product</h1>
       </div>
-      <ProductForm product={product} categories={categories} />
+      <ProductForm product={{ ...product, cost }} categories={categories} />
     </div>
   );
 }

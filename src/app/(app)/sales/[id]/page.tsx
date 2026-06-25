@@ -6,12 +6,15 @@ import { doc, onSnapshot, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { naira, formatDate } from '@/lib/formatters';
 import { StatusBadge } from '@/components/ui/Badge';
+import { useAuthContext } from '@/components/layout/AuthProvider';
+import { can } from '@/constants/roles';
 import type { Sale } from '@/types';
 import clsx from 'clsx';
 
 export default function SaleDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
+  const { appUser } = useAuthContext();
   const [sale, setSale] = useState<Sale | null>(null);
   const [loading, setLoading] = useState(true);
   const [showPayment, setShowPayment] = useState(false);
@@ -142,7 +145,7 @@ export default function SaleDetailPage({ params }: { params: Promise<{ id: strin
         </div>
 
         {/* Record payment button */}
-        {balance > 0 && (
+        {balance > 0 && can(appUser, 'CONFIRM_PAYMENT') && (
           <button
             onClick={() => setShowPayment(true)}
             className="w-full py-3.5 bg-green-600 text-white font-bold rounded-2xl active:bg-green-700"
