@@ -5,9 +5,8 @@ import { useRouter } from 'next/navigation';
 import { deleteField } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { storage } from '@/lib/firebase';
-import { addProduct, updateProduct } from '@/lib/firestore';
+import { addProduct, updateProduct, setProductCost } from '@/lib/firestore';
 import { useAuthContext } from '@/components/layout/AuthProvider';
-import { can } from '@/constants/roles';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import clsx from 'clsx';
@@ -36,7 +35,7 @@ interface ProductFormProps {
 export function ProductForm({ product, categories = [] }: ProductFormProps) {
   const router = useRouter();
   const { appUser } = useAuthContext();
-  const isOwner = can(appUser, 'VIEW_COST');
+  const isOwner = appUser?.role === 'owner';
   const isEdit = !!product;
 
   const [name, setName] = useState(product?.name ?? '');
@@ -113,26 +112,27 @@ export function ProductForm({ product, categories = [] }: ProductFormProps) {
           code: code.trim() || deleteField(),
           category: category.trim(),
           price: priceNum,
-          cost: costNum,
           stockQty: stockNum,
           ...(imageUrl ? { imageUrl } : {}),
         });
+        // Cost is stored separately (owner-only collection).
+        if (isOwner) await setProductCost(product.id, appUser.storeId, costNum);
       } else {
         const tempId = Date.now().toString();
         let imageUrl: string | undefined;
         if (imageFile) {
           imageUrl = (await uploadImage(tempId)) ?? undefined;
         }
-        await addProduct({
+        const ref = await addProduct({
           storeId: appUser.storeId,
           name: name.trim(),
           ...(code.trim() ? { code: code.trim() } : {}),
           category: category.trim(),
           price: priceNum,
-          cost: costNum,
           stockQty: stockNum,
           ...(imageUrl ? { imageUrl } : {}),
         });
+        if (isOwner) await setProductCost(ref.id, appUser.storeId, costNum);
       }
       router.back();
     } catch (err: unknown) {

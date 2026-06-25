@@ -2,6 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useAuthContext } from '@/components/layout/AuthProvider';
+import { can } from '@/constants/roles';
 import { useProducts } from '@/hooks/useProducts';
 import { ProductForm } from '@/components/products/ProductForm';
 
@@ -9,6 +10,10 @@ export default function NewProductPage() {
   const router = useRouter();
   const { appUser } = useAuthContext();
   const { categories } = useProducts(appUser?.storeId);
+
+  if (!can(appUser, 'ADD_PRODUCT')) {
+    return <p className="p-6 text-gray-500">You don&apos;t have permission to add products.</p>;
+  }
 
   return (
     <div>

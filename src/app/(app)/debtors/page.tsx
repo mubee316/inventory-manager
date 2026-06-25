@@ -3,6 +3,7 @@
 import { useMemo } from 'react';
 import Link from 'next/link';
 import { useAuthContext } from '@/components/layout/AuthProvider';
+import { can } from '@/constants/roles';
 import { useSales } from '@/hooks/useSales';
 import { naira } from '@/lib/formatters';
 
@@ -43,6 +44,10 @@ export default function DebtorsPage() {
   }, [sales]);
 
   const totalOutstanding = debtors.reduce((sum, d) => sum + d.totalOwed, 0);
+
+  if (!can(appUser, 'VIEW_HISTORY')) {
+    return <p className="p-6 text-gray-500">You don&apos;t have permission to view debtors.</p>;
+  }
 
   return (
     <div className="flex flex-col min-h-screen">

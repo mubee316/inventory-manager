@@ -3,6 +3,7 @@
 import { useState, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthContext } from '@/components/layout/AuthProvider';
+import { can } from '@/constants/roles';
 import { useProducts } from '@/hooks/useProducts';
 import { recordSale } from '@/lib/firestore';
 import { naira } from '@/lib/formatters';
@@ -87,6 +88,11 @@ export default function NewSalePage() {
       console.error(err);
       setSaving(false);
     }
+  }
+
+  // ── Permission guard ────────────────────────────────────────────
+  if (!can(appUser, 'RECORD_SALE')) {
+    return <p className="p-6 text-gray-500">You don&apos;t have permission to record sales.</p>;
   }
 
   // ── Success screen ──────────────────────────────────────────────

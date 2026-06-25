@@ -42,6 +42,7 @@ export default function CreateStorePage() {
         storeId: storeRef.id,
         role: 'owner',
         name: name.trim() || user.email?.split('@')[0] || 'Owner',
+        ...(user.email ? { email: user.email } : {}),
       });
 
       sessionStorage.removeItem('pendingName');

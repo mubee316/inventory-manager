@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { doc, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuthContext } from '@/components/layout/AuthProvider';
+import { can } from '@/constants/roles';
 import { useProducts } from '@/hooks/useProducts';
 import type { Product } from '@/types';
 
@@ -56,6 +57,10 @@ export default function RestockPage() {
     } finally {
       setSaving(false);
     }
+  }
+
+  if (!can(appUser, 'RESTOCK')) {
+    return <p className="p-6 text-gray-500">You don&apos;t have permission to restock products.</p>;
   }
 
   return (

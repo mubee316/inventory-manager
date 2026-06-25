@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react';
 import Link from 'next/link';
 import { useAuthContext } from '@/components/layout/AuthProvider';
+import { can } from '@/constants/roles';
 import { useSales } from '@/hooks/useSales';
 import { naira, formatDate } from '@/lib/formatters';
 import { StatusBadge } from '@/components/ui/Badge';
@@ -47,6 +48,10 @@ export default function HistoryPage() {
 
   const totalRevenue = filtered.reduce((s, sale) => s + sale.total, 0);
   const totalReceived = filtered.reduce((s, sale) => s + sale.amountPaid, 0);
+
+  if (!can(appUser, 'VIEW_HISTORY')) {
+    return <p className="p-6 text-gray-500">You don&apos;t have permission to view sales history.</p>;
+  }
 
   return (
     <div className="flex flex-col">

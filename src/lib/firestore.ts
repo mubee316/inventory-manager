@@ -8,6 +8,7 @@ import {
   updateDoc,
   deleteDoc,
   getDoc,
+  setDoc,
   serverTimestamp,
   runTransaction,
   limit,
@@ -17,7 +18,7 @@ import {
   type DocumentData,
 } from 'firebase/firestore';
 import { db } from './firebase';
-import type { Product, Sale } from '@/types';
+import type { PermissionKey, Product, Sale } from '@/types';
 
 // --- Collection helpers ---
 
@@ -61,8 +62,11 @@ export const lowStockQuery = (storeId: string, threshold = 5) =>
 export async function addProduct(
   data: Omit<Product, 'id' | 'createdAt' | 'updatedAt'>
 ) {
+  // `cost` never goes on the staff-readable product doc — see setProductCost.
+  const rest = { ...data };
+  delete (rest as { cost?: number }).cost;
   return addDoc(collection(db, 'products'), {
-    ...data,
+    ...rest,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
@@ -72,18 +76,84 @@ export async function updateProduct(
   id: string,
   data: Partial<WithFieldValue<Omit<Product, 'id' | 'storeId' | 'createdAt'>>>
 ) {
+  const rest = { ...data };
+  delete (rest as { cost?: unknown }).cost;
   return updateDoc(doc(db, 'products', id), {
-    ...data,
+    ...rest,
     updatedAt: serverTimestamp(),
   });
 }
 
 export async function deleteProduct(id: string) {
+  // Remove the owner-only cost doc alongside the product (no-op if absent).
+  await deleteDoc(doc(db, 'productCosts', id)).catch(() => {});
   return deleteDoc(doc(db, 'products', id));
 }
 
 export async function getProduct(id: string) {
   return getDoc(doc(db, 'products', id));
+}
+
+// --- Product costs (owner-only) ---
+
+export const productCostsQuery = (storeId: string) =>
+  query(collection(db, 'productCosts'), where('storeId', '==', storeId));
+
+export async function setProductCost(productId: string, storeId: string, cost: number) {
+  return setDoc(
+    doc(db, 'productCosts', productId),
+    { storeId, cost, updatedAt: serverTimestamp() },
+    { merge: true }
+  );
+}
+
+export async function getProductCost(productId: string): Promise<number | undefined> {
+  const snap = await getDoc(doc(db, 'productCosts', productId));
+  return snap.exists() ? (snap.data().cost as number) : undefined;
+}
+
+// --- Roles ---
+
+export const rolesQuery = (storeId: string) =>
+  query(collection(db, 'roles'), where('storeId', '==', storeId), orderBy('createdAt', 'asc'));
+
+export async function createRole(
+  storeId: string,
+  name: string,
+  permissions: Partial<Record<PermissionKey, boolean>>
+) {
+  return addDoc(collection(db, 'roles'), {
+    storeId,
+    name,
+    permissions,
+    createdAt: serverTimestamp(),
+  });
+}
+
+// --- Invites ---
+
+export async function createInvite(data: {
+  email: string;
+  storeId: string;
+  storeName?: string;
+  roleId: string;
+  roleName: string;
+  permissions: Partial<Record<PermissionKey, boolean>>;
+  invitedBy: string;
+}) {
+  return addDoc(collection(db, 'invites'), {
+    ...data,
+    status: 'pending',
+    createdAt: serverTimestamp(),
+  });
+}
+
+// All invites for a store (filter by status client-side to avoid a composite index).
+export const invitesQuery = (storeId: string) =>
+  query(collection(db, 'invites'), where('storeId', '==', storeId));
+
+export async function cancelInvite(id: string) {
+  return deleteDoc(doc(db, 'invites', id));
 }
 
 // --- Sale with atomic stock decrement ---
