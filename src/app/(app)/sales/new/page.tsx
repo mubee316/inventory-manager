@@ -379,7 +379,7 @@ export default function NewSalePage() {
 
             <button
               onClick={handleSave}
-              disabled={saving || cart.length === 0 || (owing && (!customerName.trim() || !customerPhone.trim()))},
+              disabled={saving || cart.length === 0 || (owing && (!customerName.trim() || !customerPhone.trim()))}
               className={clsx(
                 'w-full py-4 text-white font-bold text-base rounded-2xl transition-colors',
                 saving ? 'bg-green-400' : 'bg-green-600 active:bg-green-700'
