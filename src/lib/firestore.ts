@@ -164,28 +164,31 @@ export async function recordSale(
   const saleRef = doc(collection(db, 'sales'));
 
   await runTransaction(db, async (tx) => {
-    // Read all product docs first (Firestore transaction rule: all reads before writes)
-    const productRefs = saleData.items.map((item) =>
-      doc(db, 'products', item.productId)
-    );
-    const productSnaps = await Promise.all(productRefs.map((ref) => tx.get(ref)));
-
     // Write the sale document
     tx.set(saleRef, {
       ...saleData,
       createdAt: serverTimestamp(),
     });
 
-    // Decrement stock for each product
-    productSnaps.forEach((snap, i) => {
-      if (snap.exists()) {
-        const currentQty = (snap.data() as Product).stockQty;
-        tx.update(productRefs[i], {
-          stockQty: Math.max(0, currentQty - saleData.items[i].qty),
-          updatedAt: serverTimestamp(),
-        });
-      }
-    });
+    // Only decrement stock if NOT an owing sale
+    if (!saleData.owing) {
+      // Read all product docs first (Firestore transaction rule: all reads before writes)
+      const productRefs = saleData.items.map((item) =>
+        doc(db, 'products', item.productId)
+      );
+      const productSnaps = await Promise.all(productRefs.map((ref) => tx.get(ref)));
+
+      // Decrement stock for each product
+      productSnaps.forEach((snap, i) => {
+        if (snap.exists()) {
+          const currentQty = (snap.data() as Product).stockQty;
+          tx.update(productRefs[i], {
+            stockQty: Math.max(0, currentQty - saleData.items[i].qty),
+            updatedAt: serverTimestamp(),
+          });
+        }
+      });
+    }
   });
 
   return saleRef.id;

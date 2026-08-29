@@ -90,6 +90,8 @@ export interface Sale {
   amountPaid: number;
   status: 'paid' | 'partial' | 'unpaid';
   customerName?: string;
+  customerPhone?: string;
   soldBy: string;
+  owing?: boolean;
   createdAt: Timestamp;
 }

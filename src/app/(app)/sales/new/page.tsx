@@ -26,6 +26,8 @@ export default function NewSalePage() {
   const [showPayment, setShowPayment] = useState(false);
   const [amountPaid, setAmountPaid] = useState('');
   const [customerName, setCustomerName] = useState('');
+  const [customerPhone, setCustomerPhone] = useState('');
+  const [owing, setOwing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savedId, setSavedId] = useState<string | null>(null);
 
@@ -72,6 +74,14 @@ export default function NewSalePage() {
 
   async function handleSave() {
     if (!appUser || cart.length === 0) return;
+    if (owing && !customerName.trim()) {
+      alert('Customer name is required for owing sales');
+      return;
+    }
+    if (owing && !customerPhone.trim()) {
+      alert('Customer phone is required for owing sales');
+      return;
+    }
     setSaving(true);
     try {
       const id = await recordSale({
@@ -81,6 +91,8 @@ export default function NewSalePage() {
         amountPaid: paid,
         status,
         ...(customerName.trim() ? { customerName: customerName.trim() } : {}),
+        ...(customerPhone.trim() ? { customerPhone: customerPhone.trim() } : {}),
+        ...(owing ? { owing: true } : {}),
         soldBy: appUser.uid,
       });
       setSavedId(id);
@@ -111,7 +123,7 @@ export default function NewSalePage() {
         </div>
         <div className="flex gap-3 w-full max-w-xs">
           <button
-            onClick={() => { setCart([]); setAmountPaid(''); setCustomerName(''); setSaving(false); setSavedId(null); setShowPayment(false); setShowCart(false); }}
+            onClick={() => { setCart([]); setAmountPaid(''); setCustomerName(''); setCustomerPhone(''); setOwing(false); setSaving(false); setSavedId(null); setShowPayment(false); setShowCart(false); }}
             className="flex-1 py-3 bg-green-600 text-white font-semibold rounded-xl"
           >New Sale</button>
           <button onClick={() => router.replace('/history')} className="flex-1 py-3 bg-gray-100 text-gray-700 font-semibold rounded-xl">
@@ -180,13 +192,14 @@ export default function NewSalePage() {
             {visibleProducts.map((product) => {
               const qty = cartQty(product.id);
               const outOfStock = product.stockQty <= 0;
+              const canAdd = !outOfStock || owing;
               return (
                 <div
                   key={product.id}
                   className={clsx(
                     'bg-white rounded-2xl p-3 border flex flex-col gap-2 transition-colors',
                     qty > 0 ? 'border-green-300' : 'border-gray-100',
-                    outOfStock && 'opacity-50'
+                    outOfStock && !owing && 'opacity-50'
                   )}
                 >
                   {/* Product initial avatar */}
@@ -197,17 +210,18 @@ export default function NewSalePage() {
                   <div className="flex-1">
                     <p className="text-sm font-semibold text-gray-900 truncate">{product.name}</p>
                     <p className="text-xs text-gray-400">{product.stockQty} in stock</p>
+                    {outOfStock && owing && <p className="text-xs text-orange-500 font-medium">Recording as owing</p>}
                     <p className="text-sm font-bold text-green-600 mt-0.5">{naira(product.price)}</p>
                   </div>
 
                   {/* Add / qty stepper */}
                   {qty === 0 ? (
                     <button
-                      disabled={outOfStock}
+                      disabled={!canAdd}
                       onClick={() => addToCart(product)}
                       className="w-full py-2 bg-green-600 text-white text-xs font-bold rounded-xl active:bg-green-700 disabled:bg-gray-200 disabled:text-gray-400"
                     >
-                      {outOfStock ? 'Out of Stock' : 'Add'}
+                      {outOfStock && !owing ? 'Out of Stock' : 'Add'}
                     </button>
                   ) : (
                     <div className="flex items-center justify-between bg-green-50 rounded-xl px-2 py-1">
@@ -329,14 +343,43 @@ export default function NewSalePage() {
                 type="text"
                 value={customerName}
                 onChange={(e) => setCustomerName(e.target.value)}
-                placeholder="Customer name (optional)"
+                placeholder={owing ? 'Customer name (required)' : 'Customer name (optional)'}
                 className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
               />
+
+              {/* Owing toggle */}
+              <div className="flex items-center gap-3 bg-gray-50 rounded-2xl px-4 py-3">
+                <input
+                  type="checkbox"
+                  id="owing-toggle"
+                  checked={owing}
+                  onChange={(e) => setOwing(e.target.checked)}
+                  className="w-4 h-4 rounded border-gray-300 cursor-pointer"
+                />
+                <label htmlFor="owing-toggle" className="text-sm font-medium text-gray-700 cursor-pointer flex-1">
+                  Record as owing (out of stock sale)
+                </label>
+              </div>
+
+              {owing && (
+                <>
+                  <p className="text-xs text-orange-600 bg-orange-50 px-3 py-2 rounded-lg">
+                    ⚠️ This sale will not reduce stock. Capture customer details to track the owing.
+                  </p>
+                  <input
+                    type="tel"
+                    value={customerPhone}
+                    onChange={(e) => setCustomerPhone(e.target.value)}
+                    placeholder="Customer phone (required)"
+                    className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  />
+                </>
+              )}
             </div>
 
             <button
               onClick={handleSave}
-              disabled={saving || cart.length === 0}
+              disabled={saving || cart.length === 0 || (owing && (!customerName.trim() || !customerPhone.trim()))},
               className={clsx(
                 'w-full py-4 text-white font-bold text-base rounded-2xl transition-colors',
                 saving ? 'bg-green-400' : 'bg-green-600 active:bg-green-700'
