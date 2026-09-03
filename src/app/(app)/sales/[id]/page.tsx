@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation';
 import { doc, onSnapshot, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { naira, formatDate } from '@/lib/formatters';
-import { StatusBadge } from '@/components/ui/Badge';
+import { owingItemsOf } from '@/lib/firestore';
+import { StatusBadge, OwingBadge } from '@/components/ui/Badge';
 import { useAuthContext } from '@/components/layout/AuthProvider';
 import { can } from '@/constants/roles';
 import type { Sale } from '@/types';
@@ -69,6 +70,7 @@ export default function SaleDetailPage({ params }: { params: Promise<{ id: strin
   }
 
   const balance = sale.total - sale.amountPaid;
+  const owedProductIds = new Set(owingItemsOf(sale).map((item) => item.productId));
 
   function shareReceipt() {
     if (!sale) return;
@@ -123,7 +125,10 @@ export default function SaleDetailPage({ params }: { params: Promise<{ id: strin
         {/* Status + summary */}
         <div className="bg-white rounded-2xl p-4 border border-gray-100">
           <div className="flex items-center justify-between mb-3">
-            <StatusBadge status={sale.status} />
+            <div className="flex items-center gap-2">
+              <StatusBadge status={sale.status} />
+              <OwingBadge sale={sale} />
+            </div>
             {sale.customerName && (
               <span className="text-sm text-gray-600">{sale.customerName}</span>
             )}
@@ -169,6 +174,11 @@ export default function SaleDetailPage({ params }: { params: Promise<{ id: strin
                 <p className="text-xs text-gray-400">
                   {naira(item.unitPrice)} × {item.qty}
                 </p>
+                {owedProductIds.has(item.productId) && (
+                  <p className={clsx('text-xs font-medium', sale.owingFulfilledAt ? 'text-gray-400' : 'text-orange-500')}>
+                    {sale.owingFulfilledAt ? 'Was owed · delivered' : 'Owed — not yet delivered'}
+                  </p>
+                )}
               </div>
               <span className="text-sm font-bold text-gray-900">
                 {naira(item.unitPrice * item.qty)}

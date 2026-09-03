@@ -1,6 +1,7 @@
 import clsx from 'clsx';
+import type { Sale } from '@/types';
 
-type BadgeVariant = 'green' | 'yellow' | 'red' | 'gray' | 'blue';
+type BadgeVariant = 'green' | 'yellow' | 'red' | 'gray' | 'blue' | 'orange';
 
 interface BadgeProps {
   children: React.ReactNode;
@@ -14,6 +15,7 @@ const variants: Record<BadgeVariant, string> = {
   red: 'bg-red-100 text-red-800',
   gray: 'bg-gray-100 text-gray-700',
   blue: 'bg-blue-100 text-blue-800',
+  orange: 'bg-orange-100 text-orange-800',
 };
 
 export function Badge({ children, variant = 'gray', className }: BadgeProps) {
@@ -27,6 +29,17 @@ export function Badge({ children, variant = 'gray', className }: BadgeProps) {
     >
       {children}
     </span>
+  );
+}
+
+// Whether the store still owes goods on this sale. Separate from StatusBadge,
+// which tracks money: a sale can be paid in full and still be undelivered.
+export function OwingBadge({ sale }: { sale: Pick<Sale, 'owing' | 'owingFulfilledAt'> }) {
+  if (!sale.owing) return null;
+  return sale.owingFulfilledAt ? (
+    <Badge variant="gray">Delivered</Badge>
+  ) : (
+    <Badge variant="orange">Owed</Badge>
   );
 }
 
