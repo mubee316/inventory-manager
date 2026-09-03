@@ -80,6 +80,10 @@ export interface SaleItem {
   name: string;
   qty: number;
   unitPrice: number;
+  // Set when the product was out of stock as this line was added: the customer
+  // is paying for goods the store still has to hand over, so the line leaves
+  // stock alone until the sale is fulfilled.
+  owing?: boolean;
 }
 
 export interface Sale {
@@ -92,6 +96,11 @@ export interface Sale {
   customerName?: string;
   customerPhone?: string;
   soldBy: string;
+  // True when any line in `items` is owing. Denormalised from the items array so
+  // pending deliveries can be filtered without inspecting every line.
   owing?: boolean;
+  // Stamped when the owed goods are handed over, which is also when their stock
+  // is finally decremented. Absent means still outstanding.
+  owingFulfilledAt?: Timestamp;
   createdAt: Timestamp;
 }

@@ -18,7 +18,7 @@ import {
   type DocumentData,
 } from 'firebase/firestore';
 import { db } from './firebase';
-import type { PermissionKey, Product, Sale } from '@/types';
+import type { PermissionKey, Product, Sale, SaleItem } from '@/types';
 
 // --- Collection helpers ---
 
@@ -158,38 +158,76 @@ export async function cancelInvite(id: string) {
 
 // --- Sale with atomic stock decrement ---
 
+// The lines a sale still has to deliver. Sales written before owing was tracked
+// per item carried only the sale-level flag, so fall back to that for them.
+export function owingItemsOf(sale: Pick<Sale, 'items' | 'owing'>): SaleItem[] {
+  const perItem = sale.items.filter((item) => item.owing);
+  if (perItem.length > 0) return perItem;
+  return sale.owing ? sale.items : [];
+}
+
 export async function recordSale(
   saleData: Omit<Sale, 'id' | 'createdAt'>
 ): Promise<string> {
   const saleRef = doc(collection(db, 'sales'));
 
+  // Owing lines are goods the store does not hold yet, so they leave stock
+  // untouched until they are handed over; everything else comes off now.
+  const stockedItems = saleData.items.filter((item) => !item.owing);
+
   await runTransaction(db, async (tx) => {
-    // Write the sale document
+    // Every read must precede every write — tx.get() throws once tx.set() or
+    // tx.update() has been called, so resolve the products up front.
+    const productRefs = stockedItems.map((item) =>
+      doc(db, 'products', item.productId)
+    );
+    const productSnaps = await Promise.all(productRefs.map((ref) => tx.get(ref)));
+
     tx.set(saleRef, {
       ...saleData,
       createdAt: serverTimestamp(),
     });
 
-    // Only decrement stock if NOT an owing sale
-    if (!saleData.owing) {
-      // Read all product docs first (Firestore transaction rule: all reads before writes)
-      const productRefs = saleData.items.map((item) =>
-        doc(db, 'products', item.productId)
-      );
-      const productSnaps = await Promise.all(productRefs.map((ref) => tx.get(ref)));
-
-      // Decrement stock for each product
-      productSnaps.forEach((snap, i) => {
-        if (snap.exists()) {
-          const currentQty = (snap.data() as Product).stockQty;
-          tx.update(productRefs[i], {
-            stockQty: Math.max(0, currentQty - saleData.items[i].qty),
-            updatedAt: serverTimestamp(),
-          });
-        }
-      });
-    }
+    productSnaps.forEach((snap, i) => {
+      if (snap.exists()) {
+        const currentQty = (snap.data() as Product).stockQty;
+        tx.update(productRefs[i], {
+          stockQty: Math.max(0, currentQty - stockedItems[i].qty),
+          updatedAt: serverTimestamp(),
+        });
+      }
+    });
   });
 
   return saleRef.id;
+}
+
+// Hands the owed goods over: stock comes off the shelf now and the sale is
+// stamped so it drops out of the pending deliveries list.
+export async function fulfillOwingSale(saleId: string): Promise<void> {
+  const saleRef = doc(db, 'sales', saleId);
+
+  await runTransaction(db, async (tx) => {
+    const saleSnap = await tx.get(saleRef);
+    if (!saleSnap.exists()) throw new Error('Sale not found');
+
+    const sale = saleSnap.data() as Sale;
+    if (sale.owingFulfilledAt) return; // already handed over
+
+    const items = owingItemsOf(sale);
+    const productRefs = items.map((item) => doc(db, 'products', item.productId));
+    const productSnaps = await Promise.all(productRefs.map((ref) => tx.get(ref)));
+
+    tx.update(saleRef, { owingFulfilledAt: serverTimestamp() });
+
+    productSnaps.forEach((snap, i) => {
+      if (snap.exists()) {
+        const currentQty = (snap.data() as Product).stockQty;
+        tx.update(productRefs[i], {
+          stockQty: Math.max(0, currentQty - items[i].qty),
+          updatedAt: serverTimestamp(),
+        });
+      }
+    });
+  });
 }
