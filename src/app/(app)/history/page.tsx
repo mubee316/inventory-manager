@@ -6,7 +6,7 @@ import { useAuthContext } from '@/components/layout/AuthProvider';
 import { can } from '@/constants/roles';
 import { useSales } from '@/hooks/useSales';
 import { naira, formatDate } from '@/lib/formatters';
-import { StatusBadge } from '@/components/ui/Badge';
+import { StatusBadge, OwingBadge } from '@/components/ui/Badge';
 import { startOfDay, endOfDay, subDays } from 'date-fns';
 import type { Timestamp } from 'firebase/firestore';
 import clsx from 'clsx';
@@ -141,6 +141,7 @@ export default function HistoryPage() {
                       {sale.items.length} item{sale.items.length !== 1 ? 's' : ''}
                     </p>
                     <StatusBadge status={sale.status} />
+                    <OwingBadge sale={sale} />
                   </div>
                   {sale.customerName && (
                     <p className="text-xs text-gray-500 mt-0.5">{sale.customerName}</p>
